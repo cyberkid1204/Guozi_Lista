@@ -520,7 +520,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
     dst_route_location_list = []
     lock_result = []
     # 判断前一个订单是否完成，前一个订单完成后本订单才能继续执行
-    await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
+    # await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
     # 锁定取货工位
     while True:
         src_lock_status = await lock_location(self=self, location_name_list=[src], lock=lock)
@@ -596,14 +596,17 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                 if check_navigation_status == 0 and not navigation_end:
                     # 标记等待开始时间
                     time_spend_in_waiting_start = time.time()
+                    # 导航到check点后判断成组订单的执行逻辑
+                    await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
                     navigation_end = True
             if not has_send_navigation_task:
                 location_infor = await self.run_sql(
                     f'''select * from location where location_name = \'{self.source}\'''')
                 # 获取check点
                 check_dst = await self.get_mapping_value(location_infor[0]['id'], 2)
+                # 机械臂退出点
                 if check_dst:
-                    # 导航到check点，1卸2取
+                    # 导航到机械臂退出点，1卸2取
                     task_id = await self.goto_location_act_c(check_dst[0], 1, True, agv_list, agv_id, task_id)
                     io_id = await self.get_mapping_value(location_infor[0]['id'], 3)
                     while 1:
