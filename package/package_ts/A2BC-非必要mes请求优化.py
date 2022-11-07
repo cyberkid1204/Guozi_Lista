@@ -50,11 +50,11 @@ async def run(self):
             await update_order_status(self, data=request_body)
             self.logger.info('Already finished pickup informing'.center(20, '*'))
 
-        # fetch start point's opt and make a new pick up task
+        # fetch start point's opt and make a new pickup task
         fetch_opt, put_opt = await self.get_location_opt(src_location)
         task_id = await self.goto_location_act(src_location, fetch_opt, True, agv_type, None, task_id)
+        
         # 通知取货完成
-        # await self.update_order_status_with_extra_info('source_finished', '')
         await update_request_body(self, request_body, status='source_finished',
                                   extra_info=extra_details.format(src_location, src_number, src_sku))
         # 向接口发送请求（base_url/orderStatusReport）
@@ -87,13 +87,10 @@ async def run(self):
 
             nav_opt, nav_drop_opt = await self.get_location_opt(pickup_checkpoint[0])
 
-            # if number == len(dest_location_details) - 1:
-            #     follow_task = False
             if not destination:
-                # if len(dest_location_details) == 1:
                 nav_opt = -1
 
-            # According the amounts of pickup and drop calculate drop's dock point
+            # According to the amounts of pickup and drop calculate drop's dock point
             diff_num = src_number - dest_drop_amounts
             self.logger.info("source_sku_num: {}, dest_sku_num: {}, diff_num: {}!"
                              .format(src_number, dest_drop_amounts, diff_num))
@@ -110,43 +107,39 @@ async def run(self):
                 return 0
 
             task_id = await self.goto_location_act(pickup_checkpoint[0], nav_opt, True, agv_type, None, task_id)
-
             task_id = await check_location_empty(self, dock_location, pickup_checkpoint[1], task_id)
-
             await self.ts_delay(5)
+
             # 卸货前通知订单号、卸几列、sku
             await self.update_order_status_with_extra_info("inform_dropoff{}".format(unloading_times),
-                                                           extra_details.format(dock_location,
-                                                                                dest_drop_amounts,
-                                                                                src_sku))
+                                                           extra_details.format(dock_location, dest_drop_amounts, src_sku))
+
             await update_request_body(self, request_body, status='inform_dropoff{}'.format(unloading_times),
                                       extra_info=extra_details.format(dock_location, dest_drop_amounts, src_sku))
+            # 上报状态
+            await update_order_status(self, data=request_body)
 
-            wms_drop_response = await update_order_status(self, data=request_body)
-            # if wms_drop_response.get('nextDst') is not None:
-            # dock_location = wms_drop_response.get('nextDst')
             # fetch drop point's opt_id
             fetch_opt, put_opt = await self.get_location_opt(dock_location)
             task_id = await self.goto_location_act(dock_location, put_opt, follow_task, agv_type, None, task_id)
+
             # 卸货前通知订单号、卸几列、sku
-            # await self.update_order_status_with_extra_info("dropoff_finish{}".format(unloading_times), "")
             await update_request_body(self, request_body, status="dropoff_finish{}".format(unloading_times))
             while diff_num != 0:
-                wms_drop_response = await update_order_status(self, data=request_body)
+                wms_drop_response = await update_order_status(self, data=request_body, necessary=True)
                 if wms_drop_response.get('nextDst') is not None:
                     dock_location = wms_drop_response.get('nextDst')
                     break
                 else:
-                    self.ts_delay(2)
+                    self.ts_delay(1)
                     continue
             else:
                 await update_order_status(self, data=request_body)
             self.logger.info('Already finished drop'.center(20, '*'))
+
             # 通知整体完成
             await update_request_body(self, request_body, status="finish".format(unloading_times))
-            # base_url/orderStatusReport
             await update_order_status(self, data=request_body)
-            # self.logger.info('Order{} finished'.format(request_body.get('orderID')).center(20,'*')
             await self.ts_delay(3)
             unloading_times += 1
             destination = dock_location
@@ -215,26 +208,23 @@ async def check_location_empty(self, location_name, buffer_location, current_tas
     return task_id
 
 
-async def update_order_status(self, data):
-    while True:
-        try:
-            # requests_url = await self.get_gp('report_url')
-            requests_url = "http://10.20.181.40:7777/api/map/query"
-            requests_data = json.dumps(data)
-            headers = {"Content-Type": "application/json"}
-            requests_session = requests.session()
-            requests_session.keep_alive = False
-            response = requests_session.post(requests_url, requests_data, headers=headers)
-            if response.status_code != 200:
-                await self.ts_delay(1)
-                continue
-            else:
-                response_dict = json.loads(response.text)
-            return response_dict
-
-        except Exception as e:
-            self.logger.info(str(e))
-            await self.ts_delay(1)
+async def update_order_status(self, data, necessary=None):
+    try:
+        if necessary:
+            while True:
+                response = await post_to_mes(data)
+                if response.status_code != 200:
+                    await self.ts_delay(1)
+                    continue
+                else:
+                    response_dict = json.loads(response.text)
+                return response_dict
+        else:
+            await post_to_mes(data)
+            return
+    except Exception as e:
+        self.logger.info(str(e))
+        await self.ts_delay(1)
 
 
 async def update_request_body(self, body, status, extra_info=None):
@@ -246,3 +236,13 @@ async def update_request_body(self, body, status, extra_info=None):
     body['orderID'] = order_info.get('order_id')
     body['orderStatus'] = status
     body['extraInfo1'] = extra_info
+
+
+async def post_to_mes(data):
+    requests_url = "http://10.20.181.40:7777/api/map/query"
+    requests_data = json.dumps(data)
+    headers = {"Content-Type": "application/json"}
+    requests_session = requests.session()
+    requests_session.keep_alive = False
+    response = requests_session.post(requests_url, requests_data, headers=headers)
+    return response
