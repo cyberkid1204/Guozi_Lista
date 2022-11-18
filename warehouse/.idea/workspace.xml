@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="a1c70a87-f2a4-4ca0-bf3d-29e9d431bea3" name="Changes" comment="" />
+    <list default="true" id="a1c70a87-f2a4-4ca0-bf3d-29e9d431bea3" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../lista工厂/TS/SLIM-P2A.py" beforeDir="false" afterPath="$PROJECT_DIR$/../lista工厂/TS/SLIM-P2A.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../package/package_ts/A2BC-非必要mes请求优化.py" beforeDir="false" afterPath="$PROJECT_DIR$/../package/package_ts/A2BC-非必要mes请求优化.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/warehouse_ts/p2p_warehouse_成组订单逻辑修改.py" beforeDir="false" afterPath="$PROJECT_DIR$/warehouse_ts/p2p_warehouse_成组订单check点逻辑修改.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -49,6 +53,7 @@
       <workItem from="1667285661260" duration="668000" />
       <workItem from="1667286696364" duration="76000" />
       <workItem from="1667286786231" duration="404000" />
+      <workItem from="1668047054500" duration="2000" />
     </task>
     <servers />
   </component>

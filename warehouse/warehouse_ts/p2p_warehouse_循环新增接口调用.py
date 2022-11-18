@@ -37,20 +37,17 @@ operator_list = []
 agv_list = [4]
 
 # 需要取货后立刻前往检查点的库位,该列表中的库位在取完货后如果无入库路线, agv不能在原地等待，必须前往等待区等待
-location_check_point_mapping = ['Full-Up-1', 'Full-Up-2', 'Full-Up-3', 'Full-Up-4', 'Full-Up-5', 'Full-Up-6',
-                                'Full-Up-7', 'Full-Up-8', 'Full-Up-9', 'Full-Up-10', 'Full-Up-11', 'Full-Up-12',
-                                'Empty-Up-1', 'Empty-Up-2', 'Empty-Up-3', 'Empty-Up-4', 'Robot-8-8', 'Robot-9-7',
-                                'Robot-8-7', 'Robot-8-6', 'Robot-8-5', 'Robot-8-4', 'Robot-8-3', 'Robot-8-2',
-                                'Robot-8-1', 'Robot-7-8', 'Robot-7-7', 'Robot-7-6', 'Robot-7-5', 'Robot-7-4',
-                                'Robot-7-3', 'Robot-7-2', 'Robot-7-1', 'Robot-5-8', 'Robot-5-7', 'Robot-5-6',
-                                'Robot-5-5', 'Robot-5-4', 'Robot-5-3', 'Robot-5-2', 'Robot-5-1', 'Robot-4-8',
-                                'Robot-4-7', 'Robot-4-6', 'Robot-4-4', 'Robot-4-3', 'Robot-4-2', 'Robot-4-1',
-                                'Robot-3-8', 'Robot-3-6', 'Robot-3-3', 'Robot-3-4', 'Robot-3-5', 'Robot-2-8',
-                                'Robot-2-7', 'Robot-3-1', 'Robot-2-5', 'Robot-2-6', 'Robot-2-3', 'Robot-2-1',
-                                'Robot-9-8', 'Robot-9-6', 'Robot-9-5', 'Robot-9-4', 'Robot-9-3', 'Robot-9-2',
-                                'Robot-9-1', 'Robot-6-8', 'Robot-6-7', 'Robot-6-6', 'Robot-6-5', 'Robot-6-4',
-                                'Robot-6-3', 'Robot-6-2', 'Robot-6-1', 'Robot-1-8', 'Robot-1-6', 'Robot-1-2',
-                                'Robot-1-3', 'Robot-1-4', 'Robot-2-2', 'Robot-1-7', 'Robot-1-5', 'Robot-4-5']
+location_check_point_mapping = [
+    'Full-Up-1', 'Full-Up-2', 'Full-Up-3', 'Full-Up-4', 'Full-Up-5', 'Full-Up-6', 'Full-Up-7', 'Full-Up-8', 'Full-Up-9',
+    'Full-Up-10', 'Full-Up-11', 'Full-Up-12', 'Empty-Up-1', 'Empty-Up-2', 'Empty-Up-3', 'Empty-Up-4', 'Robot-1-1', 'Robot-1-2',
+    'Robot-1-3', 'Robot-1-4', 'Robot-1-5', 'Robot-1-6', 'Robot-1-7', 'Robot-1-8', 'Robot-2-1', 'Robot-2-2', 'Robot-2-3',
+    'Robot-2-4', 'Robot-2-5', 'Robot-2-6', 'Robot-2-7', 'Robot-2-8', 'Robot-3-1', 'Robot-3-2', 'Robot-3-3', 'Robot-3-4',
+    'Robot-3-5', 'Robot-3-6', 'Robot-3-7', 'Robot-3-8', 'Robot-4-1', 'Robot-4-2', 'Robot-4-3', 'Robot-4-4', 'Robot-4-5',
+    'Robot-4-6', 'Robot-4-7', 'Robot-4-8', 'Robot-5-1', 'Robot-5-2', 'Robot-5-3', 'Robot-5-4', 'Robot-5-5', 'Robot-5-6',
+    'Robot-5-7', 'Robot-5-8', 'Robot-6-1', 'Robot-6-2', 'Robot-6-3', 'Robot-6-4', 'Robot-6-5', 'Robot-6-6', 'Robot-6-7',
+    'Robot-6-8', 'Robot-7-1', 'Robot-7-2', 'Robot-7-3', 'Robot-7-4', 'Robot-7-5', 'Robot-7-6', 'Robot-7-7', 'Robot-7-8',
+    'Robot-8-1', 'Robot-8-2', 'Robot-8-3', 'Robot-8-4', 'Robot-8-5', 'Robot-8-6', 'Robot-8-7', 'Robot-8-8', 'Robot-9-1',
+    'Robot-9-2', 'Robot-9-3', 'Robot-9-4', 'Robot-9-5', 'Robot-9-6', 'Robot-9-7', 'Robot-9-8']
 # 等待区域名称列表(根据现场实际情况配置)
 waiting_area_name_list = ['warehouse-check-area']
 # 等待区外对应的排队点，每一个等待区外都有一个排队点，当等待区内无位置时，所有agv都要在排队点排队
@@ -63,6 +60,7 @@ restAPI_port = 6767
 # 宏定义库区名称
 location_area_name = 'location_area'
 time_spend_in_waiting_limit = 120
+check_point_status = None
 
 
 async def run(self):
@@ -184,6 +182,9 @@ async def cancel(self):
             await self.set_gp('require_lock_location_permission', 'none', 'str')
     except:
         pass
+    check_point_id = await self.run_sql(
+        f"""select id from layer2_pallet."location" l where location_name='{check_point_status}';""")
+    await self.release_location(check_point_id[0]['id'])
     flag = await is_area(self, self.source)
     if flag:
         try:
@@ -200,6 +201,7 @@ async def cancel(self):
             pass
     await self.run_sql(
         f"update layer4_1_om.globalparameters set gp_value = 'none' where gp_value ='order_{str(self.order.order_id)}';")
+    await set_gp(self=self, key_name=f'group_{self.group_id}_order_{self.sequence_id}', value='finish')
     self.logger.info('Order:{} When run file {}, run cancel operation'.format(self.order.order_id, Path(__file__).name))
     self.logger.debug(
         '============================== Order:{} Done==============================\n'.format(self.order.order_id))
@@ -511,6 +513,8 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
     has_send_navigation_task = False
     # 导航任务id
     navigation_task_id = None
+    # 判断check点占用
+    global check_point_status
     # 导航任务是否结束
     navigation_end = False
     # 等待开始时间
@@ -544,11 +548,11 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
     # 释放所有边
     # await reset_edge_weight_enable(self=self, location_list=[], agv_id=agv_id)
     # 空车前往取货
-    if 'Empty-Up' in self.source:
-        location_infor = await self.run_sql(f'''select * from location where location_name = \'{self.source}\'''')
-        check_dst = await self.get_mapping_value(location_infor[0]['id'], 5)
-        if check_dst:
-            task_id = await self.goto_location(check_dst[0], 2, True, agv_list, agv_id, task_id)
+    # if 'Empty-Up' in self.source:
+    #     location_infor = await self.run_sql(f'''select * from location where location_name = \'{self.source}\'''')
+    #     check_dst = await self.get_mapping_value(location_infor[0]['id'], 5)
+    #     if check_dst:
+    #         task_id = await self.goto_location(check_dst[0], 2, True, agv_list, agv_id, task_id)
     new_dst, pallet_name, task_id = await goto_load_with_scan_code(self=self, group_id=self.group_id,
                                                                    scan_type=self.scan_type,
                                                                    sequence_id=self.sequence_id,
@@ -581,6 +585,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
             # waiting_point = location_check_point_mapping.get(src)
             waiting_point, _ = await self.get_put_location_by_rule([waiting_area_name], 5, book=False)
             if waiting_point:
+                check_point_status = waiting_point
                 lock_waiting_point_be_chosen = await self.require_lock_location(waiting_point)
                 if not lock_waiting_point_be_chosen:
                     break
@@ -596,9 +601,9 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                 if check_navigation_status == 0 and not navigation_end:
                     # 标记等待开始时间
                     time_spend_in_waiting_start = time.time()
-                    # 导航到check点后判断成组订单的执行逻辑
-                    await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
                     navigation_end = True
+                # 导航到check点后判断成组订单的执行逻辑
+                await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
             if not has_send_navigation_task:
                 location_infor = await self.run_sql(
                     f'''select * from location where location_name = \'{self.source}\'''')
@@ -640,6 +645,10 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                         await release_location(self=self, location_name_list=[waiting_point], lock=lock)
                         # 变更路线权重
                         await reset_edge_weight(self=self, location_list=dst_route_location_list, agv_id=agv_id)
+                        check_point_id = await self.run_sql(
+                            f"""select id from layer2_pallet."location" l where location_name='{check_point_status}';""")
+                        await self.release_location(check_point_id[0]['id'])
+                        await set_logger(self, log_info='#################check点已释放#####################')
                         break
             if ((time_spend_in_waiting_end - time_spend_in_waiting_start) > time_spend_in_waiting_limit) \
                     and navigation_end:
@@ -656,6 +665,8 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
     else:
         has_task = False
         await set_logger(self=self, log_info='无取货等待点，agv原地等待')
+        await order_start(self=self, group_id=self.group_id, order_id=self.sequence_id)
+        await self.log("#######################前置订单完成#####################")
         time_spend_in_waiting_start = time.time()
         while True:
             location_infor = await self.run_sql(
@@ -1246,29 +1257,36 @@ async def get_route(self, x, y, to, position, way):
         if way == 1:
             if to == 'u' or to == 'd':
                 while (1):
+                    self.loop_begin()
                     row_col = await self.run_sql(
                         f"select gp_name from layer4_1_om.globalparameters where gp_value = '{y}' and gp_name like '{position}%' limit 1")
                     if row_col:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 max_p = await self.get_gp(f'position{position}')
                 max_p = json.loads(max_p)
                 max_y = max_p[3]
                 while (1):
+                    self.loop_begin()
                     max = await self.run_sql(
                         f"select * from layer4_1_om.globalparameters where gp_value = '{max_y}' and gp_name like '{position}%' limit 1")
                     if max:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 row = int(row_col[0]['gp_name'].split('col')[-1])
                 max_num = int(max[0]['gp_name'].split('col')[-1])
                 if to == 'u':
                     for i in range(row + 1):
+                        self.loop_begin()
                         y = float(await self.get_gp(f"{position}col{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1276,6 +1294,7 @@ async def get_route(self, x, y, to, position, way):
                             f"select * from location where layout_dock_id = {point} limit 1")
 
                         flag = await self.get_location_pallet_and_type(int(point))
+                        await self.ts_delay(0.01)
                         await self.log('((((((((((((((((((((' + point)
                         point1 = await self.get_location_name(location_type[0]['id'])
                         point1 = f'{point1.split("_")[0]}_d'
@@ -1290,22 +1309,26 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][
-                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     return route_list
                 if to == 'd':
                     i = max_num
                     while (i >= row):
+                        self.loop_begin()
                         y = float(await self.get_gp(f"{position}col{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1331,24 +1354,30 @@ async def get_route(self, x, y, to, position, way):
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     self.logger.error(route_list)
                     return route_list
             if to == 'l' or to == 'r':
                 while (1):
+                    self.loop_begin()
                     row_col = await self.run_sql(
                         f"select * from layer4_1_om.globalparameters where gp_value = '{x}' and gp_name like '{position}%' limit 1")
                     if row_col:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 max_p = await self.get_gp(f'position{position}')
                 max_p = json.loads(max_p)
                 max_x = max_p[1]
                 while (1):
+                    self.loop_begin()
                     max = await self.run_sql(
                         f"select * from layer4_1_om.globalparameters where gp_value = '{max_x}' and gp_name like '{position}%' limit 1")
                     if max:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 col = int(row_col[0]['gp_name'].split('row')[-1])
@@ -1356,11 +1385,14 @@ async def get_route(self, x, y, to, position, way):
                 self.logger.debug(to + row_col[0]['gp_name'] + 'ggggggggggggggggggggg')
                 if to == 'r':
                     for i in range(col + 1):
+                        self.loop_begin()
                         x = float(await self.get_gp(f"{position}row{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1386,18 +1418,23 @@ async def get_route(self, x, y, to, position, way):
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     self.logger.debug(route_list)
                     return route_list
                 if to == 'l':
                     i = max_num
                     while (i >= col):
+                        self.loop_begin()
                         x = float(await self.get_gp(f"{position}row{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1419,19 +1456,24 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     return route_list
         elif way == 2:
             if to == 'u' or to == 'd':
                 while (1):
+                    self.loop_begin()
                     row_col = await self.run_sql(
                         f"select * from layer4_1_om.globalparameters where gp_value = '{y}' and gp_name like '{position}%' limit 1")
                     if row_col:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 max_p = await self.get_gp(f'position{position}')
@@ -1443,11 +1485,14 @@ async def get_route(self, x, y, to, position, way):
                 max_num = int(max[0]['gp_name'].split('col')[-1])
                 if to == 'd':
                     for i in range(row + 1):
+                        self.loop_begin()
                         y = float(await self.get_gp(f"{position}col{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1473,17 +1518,22 @@ async def get_route(self, x, y, to, position, way):
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     return route_list
                 if to == 'u':
                     i = max_num
                     while (i >= row):
+                        self.loop_begin()
                         y = float(await self.get_gp(f"{position}col{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
@@ -1501,23 +1551,30 @@ async def get_route(self, x, y, to, position, way):
                         flag3 = await get_gp(self, f'{f[0]}_l')
                         if not flag1:
                             flag1 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag2:
                             flag2 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag3:
                             flag3 = 'none'
+                            await self.ts_delay(0.01)
                         if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     self.logger.error(route_list)
                     return route_list
             if to == 'l' or to == 'r':
                 while (1):
+                    self.loop_begin()
                     row_col = await self.run_sql(
                         f"select * from layer4_1_om.globalparameters where gp_value = '{x}' and gp_name like '{position}%' limit 1")
                     if row_col:
+                        self.loop_break()
                         break
                     await self.ts_delay(2)
                 max_p = await self.get_gp(f'position{position}')
@@ -1530,16 +1587,18 @@ async def get_route(self, x, y, to, position, way):
                 self.logger.debug(to + row_col[0]['gp_name'] + 'ggggggggggggggggggggg')
                 if to == 'l':
                     for i in range(col + 1):
+                        self.loop_begin()
                         x = float(await self.get_gp(f"{position}row{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
-                        location_type = await self.run_sql(
-                            f"select * from location where layout_dock_id = {point} limit 1")
+                        location_type = await self.run_sql(f"select * from location where layout_dock_id = {point} limit 1")
 
                         flag = await self.get_location_pallet_and_type(int(point))
                         await self.log('((((((((((((((((((((' + point)
@@ -1552,31 +1611,38 @@ async def get_route(self, x, y, to, position, way):
                         flag3 = await get_gp(self, f'{f[0]}_d')
                         if not flag1:
                             flag1 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag2:
                             flag2 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag3:
                             flag3 = 'none'
+                            await self.ts_delay(0.01)
                         if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
+                            await self.ts_delay(0.01)
                         else:
+                            self.loop_break()
                             return None
                     self.logger.debug(route_list)
                     return route_list
                 if to == 'r':
                     i = max_num
                     while (i >= col):
+                        self.loop_begin()
                         x = float(await self.get_gp(f"{position}row{i}"))
                         while (1):
+                            self.loop_begin()
                             point = await self.run_sql(
                                 f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
                             if point:
+                                self.loop_break()
                                 break
                             await self.ts_delay(2)
                         point = point[0]['gp_name']
-                        location_type = await self.run_sql(
-                            f"select * from location where layout_dock_id = {point} limit 1")
+                        location_type = await self.run_sql(f"select * from location where layout_dock_id = {point} limit 1")
 
                         flag = await self.get_location_pallet_and_type(int(point))
                         await self.log('((((((((((((((((((((' + point)
@@ -1589,22 +1655,27 @@ async def get_route(self, x, y, to, position, way):
                         flag3 = await get_gp(self, f'{f[0]}_d')
                         if not flag1:
                             flag1 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag2:
                             flag2 = 'none'
+                            await self.ts_delay(0.01)
                         if not flag3:
                             flag3 = 'none'
+                            await self.ts_delay(0.01)
                         if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
                         else:
+                            self.loop_break()
                             return None
                     return route_list
     else:
         while (1):
-            point = await self.run_sql(
-                f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
+            self.loop_begin()
+            point = await self.run_sql(f"select * from layer4_1_om.globalparameters where gp_value = \'[{x}, {y}]\' limit 1")
             if point:
+                self.loop_break()
                 break
             await self.ts_delay(2)
         location_type = await self.run_sql(
@@ -1687,6 +1758,7 @@ async def route_cal(self, src_name, dst_name):
                             route_src.append((f'{route}_r'))
                         if weight[0][0] == 'r':
                             route_src.append((f'{route}_l'))
+                    await self.ts_delay(0.01)
             else:
                 for location in a:
                     route = await self.get_location_name(location)
@@ -1700,6 +1772,7 @@ async def route_cal(self, src_name, dst_name):
                         route_dst.append(f'{route}_d')
                         if dst_name not in route:
                             route_dst.append(f'{route}_u')
+                        await self.ts_delay(0.01)
                 if weight[0][1] == 'd':
                     for location in b:
                         route = await self.get_location_name(location)
@@ -1707,6 +1780,7 @@ async def route_cal(self, src_name, dst_name):
                         route_dst.append(f'{route}_u')
                         if dst_name not in route:
                             route_dst.append(f'{route}_d')
+                        await self.ts_delay(0.01)
                 if weight[0][1] == 'l':
                     for location in b:
                         route = await self.get_location_name(location)
@@ -1714,6 +1788,7 @@ async def route_cal(self, src_name, dst_name):
                         route_dst.append(f'{route}_r')
                         if dst_name not in route:
                             route_dst.append(f'{route}_l')
+                        await self.ts_delay(0.01)
                 if weight[0][1] == 'r':
                     for location in b:
                         route = await self.get_location_name(location)
@@ -1721,10 +1796,12 @@ async def route_cal(self, src_name, dst_name):
                         route_dst.append(f'{route}_l')
                         if dst_name not in route:
                             route_dst.append(f'{route}_r')
+                        await self.ts_delay(0.01)
             else:
                 for location in b:
                     route = await self.get_location_name(location)
                     route_dst.append(f'{route}')
+                    await self.ts_delay(0.01)
             if src_name in route_src[-1]:
                 route_src = list(reversed(route_src))
             if dst_name in route_dst[0]:

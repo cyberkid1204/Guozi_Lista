@@ -22,7 +22,7 @@ import requests
 desc = '项目描述'
 para_template = {'SLIM-P2A': {'PickUp': 'str', 'DropOff': 'str'}}
 operator_list = []
-agv_type = [i for i in range(1, 100)]
+agv_type = [i for i in range(800, 810)]
 
 
 async def run(self):

@@ -114,34 +114,34 @@ async def cancel(self):
     return
 
 
-async def report_to_mes(self, url, json_data, blocking=True, debug=False):
-    """
-    :param self: self=self
-    :param url: 路由
-    :param json_data: 上报数据json格式
-    :param blocking: 是否阻塞，默认请求阻塞（True），即请求不成功会一直请求
-    :param debug: 是否处于调试模式，调试模式下不上报
-    :return: None
-    """
-    if debug:
-        return
-    headers = {"Content-Type": "application/json"}
-    while True:
-        try:
-            res = requests.post(url=url, headers=headers, data=json_data, timeout=5)
-            res_dict = json.loads(res.text)
-            self.logger.info('res_text={}'.format(res.text))
-            if res_dict.get('code') in [0, '0']:
-                await set_order_status_and_logger(self=self, logger_info=f'上报wcs成功, 响应信息为{res.text}')
-                break
-            else:
-                await set_order_status_and_logger(self=self, logger_info=f'上报wcs成功,但是wcs未通过请求,wcs响应信息为:{res.text}')
-        except Exception as e:
-            await set_order_status_and_logger(self=self, logger_info='wcs无法访问,请检查wcs服务是否已离线!')
-            self.logger.error(e)
-        if not blocking:
-            break
-        await self.ts_delay(0.5)
+# async def report_to_mes(self, url, json_data, blocking=True, debug=False):
+#     """
+#     :param self: self=self
+#     :param url: 路由
+#     :param json_data: 上报数据json格式
+#     :param blocking: 是否阻塞，默认请求阻塞（True），即请求不成功会一直请求
+#     :param debug: 是否处于调试模式，调试模式下不上报
+#     :return: None
+#     """
+#     if debug:
+#         return
+#     headers = {"Content-Type": "application/json"}
+#     while True:
+#         try:
+#             res = requests.post(url=url, headers=headers, data=json_data, timeout=5)
+#             res_dict = json.loads(res.text)
+#             self.logger.info('res_text={}'.format(res.text))
+#             if res_dict.get('code') in [0, '0']:
+#                 await set_order_status_and_logger(self=self, logger_info=f'上报wcs成功, 响应信息为{res.text}')
+#                 break
+#             else:
+#                 await set_order_status_and_logger(self=self, logger_info=f'上报wcs成功,但是wcs未通过请求,wcs响应信息为:{res.text}')
+#         except Exception as e:
+#             await set_order_status_and_logger(self=self, logger_info='wcs无法访问,请检查wcs服务是否已离线!')
+#             self.logger.error(e)
+#         if not blocking:
+#             break
+#         await self.ts_delay(0.5)
 
 
 # 校验库位是否存在
@@ -165,21 +165,21 @@ async def check_location(self, location_name):
 
 
 # 校验车上是否有货
-async def check_goods_in_agv(self, agv_id):
-    """
-    :param self: ==self
-    :param agv_id: agv编号
-    :return: 
-    """
-    sql = f'select * from layer2_pallet.object_location where current_location_id in (select id from layer2_pallet.location where location_name=\'RV{agv_id}-1\' limit 1) limit 1;'
-    while True:
-        result = await self.run_sql(sql)
-        if not result:
-            await self.update_order_status('active')
-            return
-        else:
-            await self.update_order_status(f'第{agv_id}号agv身上有货，无法前往取货，请先移除该agv身上的货物!')
-        await self.ts_delay(2)
+# async def check_goods_in_agv(self, agv_id):
+#     """
+#     :param self: ==self
+#     :param agv_id: agv编号
+#     :return:
+#     """
+#     sql = f'select * from layer2_pallet.object_location where current_location_id in (select id from layer2_pallet.location where location_name=\'RV{agv_id}-1\' limit 1) limit 1;'
+#     while True:
+#         result = await self.run_sql(sql)
+#         if not result:
+#             await self.update_order_status('active')
+#             return
+#         else:
+#             await self.update_order_status(f'第{agv_id}号agv身上有货，无法前往取货，请先移除该agv身上的货物!')
+#         await self.ts_delay(2)
 
 
 # 只将数据插入全局表

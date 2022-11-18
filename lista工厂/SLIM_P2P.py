@@ -135,8 +135,7 @@ async def check_location(self, location_name):
     :return: 
     """
     try:
-        check_sql = '''select id from layer2_pallet.location where location_name=\'{}\' limit 1;'''.format(
-            location_name)
+        check_sql = '''select id from layer2_pallet.location where location_name=\'{}\' limit 1;'''.format(location_name)
         result = await self.run_sql(check_sql)
         await logger(self=self, logger_info=f'check_location_result={result}')
         if not result:
