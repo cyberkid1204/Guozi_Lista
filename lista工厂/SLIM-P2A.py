@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 # @Author  : LuBowen
 # @Number  : 20210509
-# @FileName  :SLIM-P2A.py
 # @Time      :2022/6/21 9:54
 # @Software: PyCharm Community Edition
 # @Version : Python3
@@ -59,6 +58,9 @@ async def run(self):
 
 async def cancel(self):
     self.logger.info('Order:{} When run file {}, run cancel operation'.format(self.order.order_id, Path(__file__).name))
+    # User define code
+    await self.cancel_task()
+    # User define code
     self.logger.debug(
         '============================== Order:{} Done==============================\n'.format(self.order.order_id))
     return

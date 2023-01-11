@@ -65,8 +65,7 @@ async def run(self):
                 await set_order_status_and_logger(self=self, logger_info=f'has find location:{put_location}')
                 break
             else:
-                await set_order_status_and_logger(self=self,
-                                                  logger_info=f'searching restore location in area:{DropOff}...')
+                await set_order_status_and_logger(self=self, logger_info=f'searching restore location in area:{DropOff}...')
                 await self.ts_delay(0.5)
         task_id = await goto_location_unload(self=self, location_name=location_name, agv_type=agv_type, agv_id=agv_id,
                                              pre_task_id=task_id, manage_mode=True, follow_task=False)
@@ -96,8 +95,7 @@ async def run(self):
             await require_release_location(self=self, location_name=location)
         agv_id_info = f' and reset agv:{agv_id}!' if agv_id else '!'
         if order_status == 'cancel':
-            await set_order_status_and_logger(self=self,
-                                              logger_info=f'please finish the handle status task{agv_id_info}')
+            await set_order_status_and_logger(self=self, logger_info=f'please finish the handle status task{agv_id_info}')
         elif order_status == 'error':
             while True:
                 await set_order_status_and_logger(self=self, logger_info=f'error:{error_reason}!')
@@ -456,7 +454,8 @@ async def add_pallet_to_location(self, pallet_name, pallet_type_id, pallet_batch
     if result == -1:
         await set_order_status_and_logger(self=self, logger_info=f'托盘{pallet_name}不存在.', block=True, delay=30)
     if result == -2:
-        await set_order_status_and_logger(self=self, logger_info=f'目标位置{location}上已有托盘，无法添加托盘', block=True, delay=30)
+        await set_order_status_and_logger(self=self, logger_info=f'目标位置{location}上已有托盘，无法添加托盘', block=True,
+                                          delay=30)
     if result == -3:
         await set_order_status_and_logger(self=self, logger_info=f'目标位置{location}被锁定', block=True, delay=30)
     return pallet_id

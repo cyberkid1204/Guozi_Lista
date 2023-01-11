@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 # @Author  : LuBowen
 # @Number  : 20210509
-# @FileName  :SLIM-P2A.py
 # @Time      :2022/6/21 9:54
 # @Software: PyCharm Community Edition
 # @Version : Python3

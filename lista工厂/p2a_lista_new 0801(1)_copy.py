@@ -29,36 +29,26 @@ async def run(self):
         # 加锁保证多车联动
         await require_lock_location(self=self, location_name='start_order')
         global_location_locked.append('start_order')
-
         task_id, agv_id = await self.goto_location_reserve(self.src, True, [4, 8], None, None)
-
         # 选择存放库位
         location_name = await get_unload_location(self=self, area_name=self.dst_area, pallet_type=self.pallet_type)
-
         # 在起始点添加托盘
         add_status = await add_pallet_to_location(self=self, location=self.src, pallet_type=self.pallet_type)
-
         if not add_status:
             return 0
         # 开始搬运
         task_id = await self.goto_location_load(self.src, True, [4, 8], agv_id, task_id)
-
         await require_release_location(self=self, location_name='start_order')
-
         task_id = await self.goto_location_unload(location_name, True, [4, 8], agv_id, task_id)
-
         # 搬运空托回原位置
         # 空托计数
         count = await get_empty_pallet_count(self=self)
-
         # 获取取空托位
         empty_pallet_location = 'Laser Empty {}'.format(count)
         # 空托取货位置id和空托卸货位置id
         empty_pallet_location_fetch, empty_pallet_location_put = await self.get_location_opt(empty_pallet_location)
-
         count = await get_empty_pallet_count(self=self)
-        task_id = await self.goto_location_act('Laser Empty {}'.format(count), empty_pallet_location_fetch, True,
-                                               [4, 8], agv_id,
+        task_id = await self.goto_location_act('Laser Empty {}'.format(count), empty_pallet_location_fetch, True,[4, 8], agv_id,
                                                task_id)
         task_id = await self.goto_location_act(self.src, 1, False, [4, 8], agv_id, task_id)
         await reset_empty_pallet_count(self=self, count=count)

@@ -39,7 +39,8 @@ agv_list = [4]
 # 需要取货后立刻前往检查点的库位,该列表中的库位在取完货后如果无入库路线, agv不能在原地等待，必须前往等待区等待
 location_check_point_mapping = [
     'Full-Up-1', 'Full-Up-2', 'Full-Up-3', 'Full-Up-4', 'Full-Up-5', 'Full-Up-6', 'Full-Up-7', 'Full-Up-8', 'Full-Up-9',
-    'Full-Up-10', 'Full-Up-11', 'Full-Up-12', 'Empty-Up-1', 'Empty-Up-2', 'Empty-Up-3', 'Empty-Up-4', 'Robot-1-1', 'Robot-1-2',
+    'Full-Up-10', 'Full-Up-11', 'Full-Up-12', 'Empty-Up-1', 'Empty-Up-2', 'Empty-Up-3', 'Empty-Up-4', 'Robot-1-1',
+    'Robot-1-2',
     'Robot-1-3', 'Robot-1-4', 'Robot-1-5', 'Robot-1-6', 'Robot-1-7', 'Robot-1-8', 'Robot-2-1', 'Robot-2-2', 'Robot-2-3',
     'Robot-2-4', 'Robot-2-5', 'Robot-2-6', 'Robot-2-7', 'Robot-2-8', 'Robot-3-1', 'Robot-3-2', 'Robot-3-3', 'Robot-3-4',
     'Robot-3-5', 'Robot-3-6', 'Robot-3-7', 'Robot-3-8', 'Robot-4-1', 'Robot-4-2', 'Robot-4-3', 'Robot-4-4', 'Robot-4-5',
@@ -60,7 +61,6 @@ restAPI_port = 6767
 # 宏定义库区名称
 location_area_name = 'location_area'
 time_spend_in_waiting_limit = 120
-check_point_status = None
 
 
 async def run(self):
@@ -68,6 +68,7 @@ async def run(self):
     lock = f'order_{self.order.order_id}'
     # 1:点到点；2：点到区域；3：区域到点；4：区域到区域
     process_mode = 0
+    self.check_point = None
     try:
         src = self.source
         dst = self.dest
@@ -152,7 +153,7 @@ async def run(self):
                 await set_logger(self=self, log_info='取货点与卸货点都在库区外')
                 await general_p2p(self, src, dst, agv_list, None, False)
         elif process_mode in [5]:
-            await inventory_function(self, dst=dst, agv_list=agv_list, need_post=2)
+            await inventory_function(self, dst=dst, agv_list=agv_list, need_post=1)
         else:
             return 504
         await set_gp(self=self, key_name=f'group_{group_id}_order_{order_id}', value='finish')
@@ -177,14 +178,16 @@ async def run(self):
 
 async def cancel(self):
     try:
-        require_lock = await self.get_gp('require_lock_location_permission')
+        require_lock = await self.run_sql(
+            "select * from layer4_1_om.globalparameters g where gp_name='require_lock_location_permission';")
         if require_lock == f'order_{str(self.order.order_id)}':
             await self.set_gp('require_lock_location_permission', 'none', 'str')
     except:
         pass
-    check_point_id = await self.run_sql(
-        f"""select id from layer2_pallet."location" l where location_name='{check_point_status}';""")
-    await self.release_location(check_point_id[0]['id'])
+    if self.check_point:
+        check_point_id = await self.run_sql(
+            f"""select id from layer2_pallet."location" l where location_name='{self.check_point}';""")
+        await self.release_location(check_point_id[0]['id'])
     flag = await is_area(self, self.source)
     if flag:
         try:
@@ -343,6 +346,7 @@ async def lock_location(self, location_name_list, lock):
     :return: 库位全部锁定成功，返回已被锁定的库位列表
     """
     location_has_locked = []
+    # 先获取加锁权限
     await require_lock_location_permission(self=self, permission_lock=lock)
     # 校验要加锁的库位是否已被加锁
     for location in location_name_list:
@@ -429,31 +433,6 @@ async def finish_task(self, task_id):
         await self.ts_delay(5)
 
 
-# async def finish_task(self, task_id):
-#     """
-#     :param self:==self
-#     :param task_id: 任务id
-#     :return:
-#     """
-#     finish_task_api_url = f'http://{restAPI_ip}:{restAPI_port}/api/dispatch/tasks/agv-tasks/completed/'
-#     set_logger(self=self, log_info=f'finish_task_api_url={finish_task_api_url}')
-#     request_data = json.dumps(dict(data=[dict(task_id=task_id)]))
-#     headers = {'Content-Type': 'application/json'}
-#     while True:
-#         try:
-#             res = requests.post(url=finish_task_api_url, data=request_data, headers=headers)
-#             await set_logger(self=self, log_info=f'res={res}')
-#             await set_logger(self=self, log_info=f'res_text={res.text}')
-#             if json.loads(res.text).get('code') in [0, '0']:
-#                 task_status = await self.is_task_finished(task_id)
-#                 if task_status == 0:
-#                     break
-#         except Exception as e:
-#             await self.update_order_status('结束任务{}失败,原因:{}'.format(task_id, e))
-#             await self.log(e)
-#         await self.ts_delay(5)
-
-
 # 查询任务状态
 async def check_task_status(self, task_id):
     """
@@ -496,12 +475,13 @@ async def check_task_status(self, task_id):
 
 
 # 工位入库业务
-async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
+async def into_warehouse_task(self, src, dst, lock, waiting_point=None, need_post=1):
     """
     :param self: ==self
     :param src: 起点
     :param dst: 终点
     :param lock: 锁
+    :param need_post: 超时请求开关
     :param waiting_point: 等待点，若有等待点，车辆取完货会立即前往等待点，无则原地等待
     :return: 0
     """
@@ -513,8 +493,6 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
     has_send_navigation_task = False
     # 导航任务id
     navigation_task_id = None
-    # 判断check点占用
-    global check_point_status
     # 导航任务是否结束
     navigation_end = False
     # 等待开始时间
@@ -573,6 +551,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
             if finish_flag == 0:
                 break
             if io_id:
+                await self.ts_delay(2)
                 await self.set_ssio(io_id[0], 0, 17)
             await self.ts_delay(0.5)
     # task_id = await self.goto_location_load(src, True, [4], agv_id, task_id)
@@ -585,13 +564,14 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
             # waiting_point = location_check_point_mapping.get(src)
             waiting_point, _ = await self.get_put_location_by_rule([waiting_area_name], 5, book=False)
             if waiting_point:
-                check_point_status = waiting_point
+                self.check_point = waiting_point
                 lock_waiting_point_be_chosen = await self.require_lock_location(waiting_point)
                 if not lock_waiting_point_be_chosen:
                     break
         if not waiting_point:
             waiting_point = waiting_area_check_point.get(waiting_area_name_list[0])
     await set_logger(self=self, log_info='获取取货等待点{}'.format(waiting_point))
+
     if waiting_point:
         await set_logger(self=self, log_info='导航前往等待点')
         while True:
@@ -607,7 +587,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
             if not has_send_navigation_task:
                 location_infor = await self.run_sql(
                     f'''select * from location where location_name = \'{self.source}\'''')
-                # 获取check点
+                # 获取退出点
                 check_dst = await self.get_mapping_value(location_infor[0]['id'], 2)
                 # 机械臂退出点
                 if check_dst:
@@ -619,12 +599,14 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                         if finish_flag == 0:
                             break
                         if io_id:
+                            await self.ts_delay(2)
                             await self.set_ssio(io_id[0], 0, 17)
                         await self.ts_delay(0.5)
                 else:
+                    # 传送带io复位
                     io_id = await self.get_mapping_value(location_infor[0]['id'], 3)
                     if io_id:
-                        await self.ts_delay(1)
+                        await self.ts_delay(2)
                         await self.set_ssio(io_id[0], 0, 17)
 
                 task_id = await self.goto_location_c(waiting_point, 2, True, [4], agv_id, task_id)
@@ -646,12 +628,12 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                         # 变更路线权重
                         await reset_edge_weight(self=self, location_list=dst_route_location_list, agv_id=agv_id)
                         check_point_id = await self.run_sql(
-                            f"""select id from layer2_pallet."location" l where location_name='{check_point_status}';""")
+                            f"""select id from layer2_pallet."location" l where location_name='{waiting_point}';""")
                         await self.release_location(check_point_id[0]['id'])
                         await set_logger(self, log_info='#################check点已释放#####################')
                         break
             if ((time_spend_in_waiting_end - time_spend_in_waiting_start) > time_spend_in_waiting_limit) \
-                    and navigation_end:
+                    and navigation_end and need_post != 2:
                 require_result, new_dst = await require_new_dst(self, request_data={"orderID": self.order.order_id,
                                                                                     "currentLocation": dst,
                                                                                     "operationType": "1"})
@@ -681,6 +663,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                         if finish_flag == 0:
                             break
                         if io_id:
+                            await self.ts_delay(2)
                             await self.set_ssio(io_id[0], 0, 17)
                         await self.ts_delay(0.5)
                 has_task = True
@@ -694,7 +677,7 @@ async def into_warehouse_task(self, src, dst, lock, waiting_point=None):
                     break
                 await set_logger(self=self, log_info='加锁前往卸货点库位路线失败:{}'.format(dst_route_location_list))
                 await self.update_order_status('Route occupied')
-            if (time_spend_in_waiting_end - time_spend_in_waiting_start) > time_spend_in_waiting_limit:
+            if (time_spend_in_waiting_end - time_spend_in_waiting_start) > time_spend_in_waiting_limit and need_post != 2:
                 await set_logger(self=self, log_info='等待超时，重新申请卸货点')
                 require_result, new_dst = await require_new_dst(self, request_data={"orderID": self.order.order_id,
                                                                                     "currentLocation": dst,
@@ -899,10 +882,11 @@ async def out_warehouse_task(self, src, dst, lock):
                                                                     sequence_id=self.sequence_id,
                                                                     taskid=task_id, agv_list=agv_list, agv_id=agv_id)
             await reset_edge_weight(self=self, location_list=src_route_location_list, agv_id=agv_id)
+            await set_logger(self=self, log_info='取货完成，返回{}，{}，{}'.format(new_dst, code, task_id))
             # await reset_edge_weight_unable(self=self, location_list=[], agv_id=agv_id)
             # 判断终点库位是否在库区
             check_dst = await is_area(self=self, location_name=dst)
-            # 卸货到库区
+            # 卸货到check区(如果卸货点是机械臂且第一次不允许卸货走到check区域里)
             if check_dst:
                 # 循环搜索卸货路线
                 while True:
@@ -932,6 +916,7 @@ async def out_warehouse_task(self, src, dst, lock):
                     check_dst = await self.get_mapping_value(location_infor[0]['id'], 5)
                     if check_dst:
                         task_id = await self.goto_location(check_dst[0], 2, True, agv_list, agv_id, task_id)
+                """下发卸货任务"""
                 task_id = await goto_unload_with_check_area_and_report_code(self=self,
                                                                             location=dst_route_location_list[-1],
                                                                             location_name_list=None,
@@ -960,7 +945,6 @@ async def out_warehouse_task(self, src, dst, lock):
                         break
                     await self.ts_delay(5)
                 # 订单结束
-            # 卸货到机械臂
             else:
                 await reset_edge_weight(self=self, location_list=src_route_location_list, agv_id=agv_id)
                 if 'Empty-Down' in self.dest:
@@ -969,6 +953,15 @@ async def out_warehouse_task(self, src, dst, lock):
                     check_dst = await self.get_mapping_value(location_infor[0]['id'], 5)
                     if check_dst:
                         task_id = await self.goto_location(check_dst[0], 2, True, agv_list, agv_id, task_id)
+                    while True:
+                        # 获取车辆当前坐标
+                        pos_x, pos_y, pos_angle = await self.get_agv_pos(agv_id)
+                        agv_is_out = await is_outof_area(self=self, location_name=src_route_location_list[0], x=pos_x,
+                                                         y=pos_y)
+                        if agv_is_out:
+                            await release_location(self=self, location_name_list=src_location_has_been_locked, lock=lock)
+                            break
+                        await self.ts_delay(5)
                 task_id = await goto_unload_with_check_area_and_report_code(self=self,
                                                                             location=dst,
                                                                             location_name_list=src_location_has_been_locked,
@@ -979,8 +972,7 @@ async def out_warehouse_task(self, src, dst, lock):
                 while True:
                     # 获取车辆当前坐标
                     pos_x, pos_y, pos_angle = await self.get_agv_pos(agv_id)
-                    agv_is_out = await is_outof_area(self=self, location_name=src_route_location_list[0], x=pos_x,
-                                                     y=pos_y)
+                    agv_is_out = await is_outof_area(self=self, location_name=src_route_location_list[0], x=pos_x, y=pos_y)
                     if agv_is_out:
                         await release_location(self=self, location_name_list=src_location_has_been_locked, lock=lock)
                         break
@@ -1033,7 +1025,7 @@ async def get_gp(self, key_name):
     return None
 
 
-##############################以下为预留接口######################################
+# #############################以下为预留接口######################################
 
 # 预设搜路omi
 async def Route_main(self, src_name, dst_name):
@@ -1290,7 +1282,8 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
@@ -1323,7 +1316,8 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
@@ -1367,7 +1361,8 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
@@ -1445,7 +1440,8 @@ async def get_route(self, x, y, to, position, way):
                             flag2 = 'none'
                         if not flag3:
                             flag3 = 'none'
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
@@ -1481,7 +1477,8 @@ async def get_route(self, x, y, to, position, way):
                         if not flag3:
                             flag3 = 'none'
                             await self.ts_delay(0.01)
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
@@ -1527,7 +1524,8 @@ async def get_route(self, x, y, to, position, way):
                         if not flag3:
                             flag3 = 'none'
                             await self.ts_delay(0.01)
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i += 1
@@ -1563,7 +1561,8 @@ async def get_route(self, x, y, to, position, way):
                         if not flag3:
                             flag3 = 'none'
                             await self.ts_delay(0.01)
-                        if (flag[0][0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
+                        if (flag[0][
+                                0] is None and flag1 == 'none' and flag2 == 'none' and flag3 == 'none') or self.source in point1:
                             route_dock = point
                             route_list.append(location_type[0]['id'])
                             i -= 1
@@ -1708,7 +1707,7 @@ async def route_cal(self, src_name, dst_name):
 
 async def function_main(self, base_url=None, scan_type=None, location=None,
                         follow_task=False, taskid=None, agv_list=None,
-                        agv_id=None, need_post=2):
+                        agv_id=None, need_post=1):
     headers = {"Content-Type": "application/json"}
     await self.update_order_status("active")
     location_infor = await location_name2id_dock(self, location)
@@ -1757,7 +1756,7 @@ async def function_main(self, base_url=None, scan_type=None, location=None,
     return self.dest, code, taskid
 
 
-async def inventory_function(self, dst, agv_list=None, agv=None, taskid=None, need_post=2):
+async def inventory_function(self, dst, agv_list=None, agv=None, taskid=None, need_post=1):
     follow_task = False
     if not taskid:
         follow_task = True
@@ -1791,8 +1790,8 @@ async def inventory_function(self, dst, agv_list=None, agv=None, taskid=None, ne
 
 async def goto_unload_with_check_area_and_report_code(self, location, location_name_list, code, scan_type, taskid=None,
                                                       agv_list=None,
-                                                      agv_id=None, need_post=2):
-    while (1):
+                                                      agv_id=None, need_post=1):
+    while 1:
         base_url = await get_gp(self, 'base_url')
         low_battery = await get_gp(self, 'low_battery')
         src_fetch_opt, src_put_opt = await self.get_location_opt(location)
@@ -1823,12 +1822,12 @@ async def goto_unload_with_check_area_and_report_code(self, location, location_n
                 if location_name_list:
                     await release_location(self=self, location_name_list=location_name_list,
                                            lock=f'order_{self.order.order_id}')
-                while (1):
+                while 1:
                     is_finish = await self.is_task_finished(taskid)
                     if is_finish == 0:
                         io_id = await self.get_mapping_value(location_infor['id'], 4)
                         if io_id:
-                            await self.ts_delay(1)
+                            await self.ts_delay(2)
                             await self.set_ssio(io_id[0], 0, 17)
                         break
                     await self.ts_delay(5)
@@ -1838,7 +1837,7 @@ async def goto_unload_with_check_area_and_report_code(self, location, location_n
                 flag = await is_area(self, location)
                 if flag:
                     new_location = f"{location}_u"
-                    while (1):
+                    while 1:
                         _, dst_route_location_list = await Route_main(self, self.dest, new_location)
                         await set_logger(self=self, log_info='搜索前往卸货点库位路线成功:{}'.format(dst_route_location_list))
                         if dst_route_location_list:
@@ -1931,7 +1930,7 @@ async def goto_unload_with_check_area_and_report_code(self, location, location_n
                         f'''select * from location where location_name = \'{result_json['newDst']}\'''')
                     io_id = await self.get_mapping_value(location_infor[0]['id'], 4)
                     if io_id:
-                        await self.ts_delay(1)
+                        await self.ts_delay(2)
                         await self.set_ssio(io_id[0], 0, 17)
                     return 0
             # 不允许卸货、没有新的目的地
@@ -1964,20 +1963,22 @@ async def goto_unload_with_check_area_and_report_code(self, location, location_n
             if location_name_list:
                 await release_location(self=self, location_name_list=location_name_list,
                                        lock=f'order_{self.order.order_id}')
+            # 询问能不能进入机械臂卸货
             await ask_can_put(self, base_url, scan_type, src_put_opt, location, low_battery, code,
                               need_post, area[0], taskid, agv_list, agv_id)
             io_id = await self.get_mapping_value(location_infor['id'], 4)
             if io_id:
-                await self.ts_delay(1)
+                await self.ts_delay(2)
                 await self.set_ssio(io_id[0], 0, 17)
             return taskid
             # else:
             #     await self.update_order_status("没有空闲的check点")
             #     continue
         else:
-            # 卸货到库区的点
+            # 卸货到库区或机械臂
             taskid = await self.goto_location_act_c(location, src_put_opt, False, agv_list, agv_id, taskid)
             io_id = await self.get_mapping_value(location_infor['id'], 4)
+            # 入库或移库
             if self.process_type == '1' or self.process_type == '3':
                 l = location.split('_')[0]
                 await self.add_pallet(f'{l}_u', 1)
@@ -1996,12 +1997,28 @@ async def goto_unload_with_check_area_and_report_code(self, location, location_n
                 await self.set_pallet_batch_no(f'{l}_l', '1')
                 l_infor = await location_name2id_dock(self, f'{l}_l')
                 await self.set_pallet_location(f'{l}_l', l_infor['id'])
-            while (1):
+            if not (self.source.startswith("Full-Up") or self.source.startswith("Empty-Up") or self.source.startswith(
+                    "Robot")):
+                while 1:
+                    src_xy = await self.get_agv_pos(agv_id)
+                    x = round(src_xy[0], 2)
+                    y = round(src_xy[1], 2)
+                    a = await is_outof_area(self, f'{self.source}_u', x, y)
+                    b = await self.get_task_agv(taskid)
+                    if a and b:
+                        break
+                    await self.ts_delay(2)
+                if location_name_list:
+                    await release_location(self=self, location_name_list=location_name_list,
+                                           lock=f'order_{self.order.order_id}')
+                await set_logger(self, log_info='#################取货点已释放#####################')
+            while 1:
                 is_finish = await self.is_task_finished(taskid)
                 if is_finish == 0:
                     break
                 await self.ts_delay(5)
             if io_id:
+                await self.ts_delay(2)
                 await self.set_ssio(io_id[0], 0, 17)
             await self.run_sql(f'''update location set can_put = False where location_name = \'{self.dest}\'''')
             if scan_type == 2 or scan_type == 3:
@@ -2046,6 +2063,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
         else:
             result_json = {"unloadingAllow": False, "newDst": "Robot-9-7"}
         battery = await self.get_agv_battery_percentage(agv_id)
+        # 允许进入机械臂卸货：卸货
         if result_json['unloadingAllow'] is True:
             while (1):
                 src_xy = await self.get_agv_pos(agv_id)
@@ -2065,6 +2083,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
             await self.release_location(area_location)
             # await self.del_pallet(pallet)
             break
+        # 是否有新目的地
         if result_json['newDst']:
             location = result_json['newDst']
             flag = await is_area(self, location)
@@ -2158,9 +2177,10 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
                     f'''select * from location where location_name = \'{result_json['newDst']}\'''')
                 io_id = await self.get_mapping_value(location_infor[0]['id'], 4)
                 if io_id:
-                    await self.ts_delay(1)
+                    await self.ts_delay(2)
                     await self.set_ssio(io_id[0], 0, 17)
                 return 0
+        # 电池电量低于阈值，请求把货卸货到库区
         if battery <= float(low_battery):
             if need_post != 2:
                 headers = {"Content-Type": "application/json"}
@@ -2177,6 +2197,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
                         await self.ts_delay(5)
             else:
                 new_area_json = {'location': 'A1-1-1'}
+            # 如果有mes有下发新的卸货点
             if new_area_json['location']:
                 while (1):
                     src_xy = await self.get_agv_pos(agv_id)
@@ -2195,6 +2216,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
                     await self.ts_delay(5)
                 location = new_area_json['location']
                 flag = await is_area(self, location)
+                # 判断卸货点在不在库区
                 if flag:
                     new_location = f"{location}_u"
                     while (1):
@@ -2260,7 +2282,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
                         f'''select * from location where location_name = \'{location}\'''')
                     io_id = await self.get_mapping_value(location_infor[0]['id'], 4)
                     if io_id:
-                        await self.ts_delay(1)
+                        await self.ts_delay(2)
                         await self.set_ssio(io_id[0], 0, 17)
                     return 0
             if scan_type == 2:
@@ -2284,7 +2306,7 @@ async def ask_can_put(self, base_url, scan_type, src_put_opt, dest, low_battery,
     location_infor = await self.run_sql(f'''select * from location where location_name = \'{dest}\'''')
     io_id = await self.get_mapping_value(location_infor[0]['id'], 4)
     if io_id:
-        await self.ts_delay(1)
+        await self.ts_delay(2)
         await self.set_ssio(io_id[0], 0, 17)
     if scan_type == 2 or scan_type == 3:
         if need_post != 2:
